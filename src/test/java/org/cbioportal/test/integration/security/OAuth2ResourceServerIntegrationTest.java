@@ -44,7 +44,8 @@ import org.springframework.test.context.junit4.SpringRunner;
 import java.io.IOException;
 import java.net.URLEncoder;
 
-import static org.cbioportal.test.integration.security.OAuth2ResourceServerIntegrationTest.MyMysqlInitializer;
+import static org.cbioportal.test.integration.security.AbstractContainerTest.MyMysqlInitializer;
+import static org.cbioportal.test.integration.security.AbstractContainerTest.MyOAuth2ResourceServerKeycloakInitializer;
 import static org.cbioportal.test.integration.security.util.TokenHelper.encodeWithoutSigning;
 import static org.junit.Assert.assertEquals;
 
@@ -65,21 +66,22 @@ import static org.junit.Assert.assertEquals;
         "spring.datasource.driverClassName=com.mysql.jdbc.Driver",
         "spring.jpa.database-platform=org.hibernate.dialect.MySQL5Dialect",
         // FIXME Our test saml idp does not sign assertions for some reason
-        "spring.security.saml2.relyingparty.registration.keycloak.assertingparty.metadata-uri=http://host.testcontainers.internal:8084/realms/cbio/protocol/saml/descriptor",
-        "spring.security.saml2.relyingparty.registration.keycloak.assertingparty.entity-id=http://host.testcontainers.internal:8084/realms/cbio",
         "spring.security.saml2.relyingparty.registration.keycloak.entity-id=cbioportal",
         "spring.security.saml2.relyingparty.registration.keycloak.signing.credentials[0].certificate-location=classpath:dev/security/signing-cert.pem",
         "spring.security.saml2.relyingparty.registration.keycloak.signing.credentials[0].private-key-location=classpath:dev/security/signing-key.pem", 
         "dat.oauth2.clientId=client_id",
         "dat.oauth2.clientSecret=client_secret",
-        "dat.oauth2.redirectUri=http://localhost:8080/api/data-access-token/oauth2",
+        "dat.oauth2.redirectUri=http://host.testcontainers.internal:8080/api/data-access-token/oauth2",
         // host is the mock server that fakes the oidc idp
-        "dat.oauth2.accessTokenUri=http://localhost:8085/realms/cbio/protocol/openid-connect/token",
-        "dat.oauth2.jwtRolesPath=resource_access::cbioportal::roles"
+        "dat.oauth2.accessTokenUri=http://host.testcontainers.internal:8085/realms/cbio/protocol/openid-connect/token",
+        "dat.oauth2.userAuthorizationUri=http://host.testcontainers.internal:8085/realms/cbio/protocol/openid-connect/auth",
+        "dat.oauth2.jwtRolesPath=resource_access::cbioportal::roles",
+        "filter_groups_by_appname=false"
     }
 )
 @ContextConfiguration(initializers = {
-    MyMysqlInitializer.class
+    MyMysqlInitializer.class,
+    MyOAuth2ResourceServerKeycloakInitializer.class
 })
 @DirtiesContext // needed to reuse port 8080 for multiple tests
 public class OAuth2ResourceServerIntegrationTest extends AbstractContainerTest {
@@ -117,7 +119,7 @@ public class OAuth2ResourceServerIntegrationTest extends AbstractContainerTest {
         String accessTokenClaims = "{" +
             "\"sub\": \"1234567890\"," +
             "\"name\": \"John Doe\"," +
-            "\"resource_access\": {\"cbioportal\": {\"roles\": [\"cbioportal:study_tcga_pub\"]}}" +
+            "\"resource_access\": {\"cbioportal\": {\"roles\": [\"study_tcga_pub\"]}}" +
             "}";
         MockServerClient mockServerClient = new MockServerClient(mockServerContainer.getHost(), mockServerContainer.getFirstMappedPort());
         mockServerClient.when(

@@ -1,6 +1,7 @@
 package org.cbioportal.test.integration.security;
 
 import dasniko.testcontainers.keycloak.KeycloakContainer;
+import org.cbioportal.test.integration.OAuth2ResourceServerKeycloakInitializer;
 import org.cbioportal.test.integration.MysqlInitializer;
 import org.cbioportal.test.integration.OAuth2KeycloakInitializer;
 import org.cbioportal.test.integration.SamlKeycloakInitializer;
@@ -32,11 +33,10 @@ public class AbstractContainerTest {
     public final static int CBIO_PORT = 8080;
     public final static int SESSION_SERVICE_PORT = 5000;
     public final static int MONGO_PORT = 27017;
-    public final static int KEYCLOAK_PORT = 8084;
     public final static int MYSQL_PORT = 3306;
     public final static int MOCKSERVER_PORT = 8085;
     public final static String DOWNLOAD_FOLDER = "/tmp/browser_downloads";
-
+    
     private static final String SESSION_IMAGE_VERSION = "docker.io/cbioportal/session-service:0.6.1";
     private static final String MONGO_IMAGE_VERSION = "docker.io/mongo:3.7.9";
     private static final String KEYCLOAK_IMAGE_VERSION = "quay.io/keycloak/keycloak:23.0";
@@ -49,11 +49,11 @@ public class AbstractContainerTest {
     static final GenericContainer mockServerContainer;
     static final KeycloakContainer keycloakContainer;
     static final BrowserWebDriverContainer chromedriverContainer;
-    
+
     static {
 
         String hostToCheck = "host.testcontainers.internal";
-        String ipAddressToCheck = "localhost";
+        String ipAddressToCheck = "127.0.0.1";
         try {
             if (!isHostMappingPresent(hostToCheck, ipAddressToCheck)) {
                 throw new IllegalStateException(hostToCheck + " is not mapped to " + ipAddressToCheck + " in /etc/hosts. Please add this mapping.");
@@ -61,7 +61,6 @@ public class AbstractContainerTest {
         } catch (IOException e) {
             throw new RuntimeException("Unable to read /etc/hosts file.", e);
         }
-        
         sessionServiceContainer = new GenericContainer(DockerImageName.parse(SESSION_IMAGE_VERSION))
             .withAccessToHost(true)
             .withEnv("SERVER_PORT", "5000")
@@ -78,7 +77,6 @@ public class AbstractContainerTest {
             .withAdminPassword("admin")
             .withEnv("KC_HOSTNAME", "host.testcontainers.internal")
             .withEnv("KC_HOSTNAME_ADMIN", "localhost");
-        keycloakContainer.setPortBindings(ImmutableList.of(String.format("%s:8080", KEYCLOAK_PORT)));
 
         mockServerContainer = new GenericContainer(MOCKSERVER_IMAGE_VERSION)
             .withExposedPorts(1080);
@@ -88,7 +86,6 @@ public class AbstractContainerTest {
             .withClasspathResourceMapping("cgds.sql", "/docker-entrypoint-initdb.d/a_schema.sql", BindMode.READ_ONLY)
             .withClasspathResourceMapping("seed_mini.sql", "/docker-entrypoint-initdb.d/b_seed.sql", BindMode.READ_ONLY)
             .withStartupTimeout(Duration.ofMinutes(10));
-        mysqlContainer.setPortBindings(ImmutableList.of(String.format("%s:3306", MYSQL_PORT)));
 
         ChromeOptions options = new ChromeOptions();
         Map<String, Object> prefs = new HashMap<>();
@@ -99,14 +96,14 @@ public class AbstractContainerTest {
         options.setExperimentalOption("prefs", prefs);
 
         chromedriverContainer = new BrowserWebDriverContainer<>()
-            // activate this to record movies of the tests (greate for debugging)
-            .withRecordingMode(RECORD_ALL, new File("/home/pnp300"))
-            .withAccessToHost(true)
-            .withCapabilities(options);
+            .withCapabilities(options)
+            // activate this to record movies of the tests (great for debugging)
+            .withRecordingMode(RECORD_ALL, new File("/home/pnp300/"))
+            .withAccessToHost(true);
 
+        mysqlContainer.start();
         sessionServiceContainer.start();
         mongoContainer.start();
-        mysqlContainer.start();
         mockServerContainer.start();
         keycloakContainer.start();
         chromedriverContainer.start();
@@ -120,7 +117,6 @@ public class AbstractContainerTest {
             super.initializeImpl(configurableApplicationContext, keycloakContainer);
         }
     }
-    
     // Update application properties with connection info on Keycloak container
     public static class MyOAuth2KeycloakInitializer extends OAuth2KeycloakInitializer {
         @Override
@@ -139,6 +135,14 @@ public class AbstractContainerTest {
         }
     }
 
+    public static class MyOAuth2ResourceServerKeycloakInitializer extends OAuth2ResourceServerKeycloakInitializer {
+        @Override
+        public void initialize(
+            ConfigurableApplicationContext configurableApplicationContext) {
+            super.initializeImpl(configurableApplicationContext, keycloakContainer);
+        }
+    } 
+
     // Expose the ports for the cBioPortal Spring application and keycloak inside 
     // the Chrome container. Each address is available on http://host.testcontainers.internal:<port>
     // in the browser container.
@@ -152,7 +156,8 @@ public class AbstractContainerTest {
             values.applyTo(applicationContext);
             applicationContext.addApplicationListener(
                 (ApplicationListener<WebServerInitializedEvent>) event -> {
-                    Testcontainers.exposeHostPorts(CBIO_PORT, KEYCLOAK_PORT, MONGO_PORT);
+                    Testcontainers.exposeHostPorts(CBIO_PORT, keycloakContainer.getHttpPort(), MONGO_PORT);
+                    keycloakContainer.setPortBindings(ImmutableList.of(String.format("%s:8080", keycloakContainer.getHttpPort())));
                 });
         }
     }
